@@ -66,25 +66,32 @@ async def upload_json(payload: RequestModel):
         # 4. Salvataggio Excel
         df.to_excel(filepath, index=False)
 
-        # 5. Formattazione numerica Excel (2 decimali) + forzatura testo su BC e IN
+        # 5. Formattazione Excel
         wb = openpyxl.load_workbook(filepath)
         ws = wb.active
+
+        # Forza header come testo esplicito
+        for cell in ws[1]:
+            cell.number_format = '@'
+            cell.data_type = 's'
+
+        # Crea mappa intestazioni
         headers = {cell.value: idx + 1 for idx, cell in enumerate(ws[1])}
 
+        # Format numeri con 2 decimali e colonne BC/IN come testo
         for row in ws.iter_rows(min_row=2):
             for cell in row:
                 if isinstance(cell.value, (int, float)):
                     cell.number_format = '0.00'
 
-        # Forza BC e IN come testo (number_format = '@')
         for col in ["BC", "IN"]:
             if col in headers:
                 col_letter = openpyxl.utils.get_column_letter(headers[col])
                 for cell in ws[col_letter][1:]:  # skip header
                     cell.number_format = '@'
+                    cell.data_type = 's'
 
         wb.save(filepath)
-
         logger.info(f"📄 File Excel salvato: {filepath}")
 
         # 6. Upload su Dropbox in /mtoXLSX
