@@ -1,64 +1,37 @@
 from flask import Flask, request, jsonify
-import io
-import logging
-from dropbox_uploader import upload_to_dropbox, get_access_token, REFRESH_TOKEN, CLIENT_ID, CLIENT_SECRET
-import openpyxl
 from openpyxl import Workbook
+from datetime import datetime
+import os
 
 app = Flask(__name__)
-logging.basicConfig(level=logging.INFO)
+SAVE_FOLDER = "./generated_xlsx"
+os.makedirs(SAVE_FOLDER, exist_ok=True)
 
-def genera_excel(data):
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Data"
-    ws.append(["bc","qt","in","spec","pp","sp","sd1","sd2","sd3","sd4"])  # header fissi
-
-    for r in data:
-        ws.append([
-            r.get("bc",""),
-            r.get("qt",""),
-            r.get("in",""),
-            r.get("spec",""),
-            r.get("pp",""),
-            r.get("sp",""),
-            r.get("sd1",""),
-            r.get("sd2",""),
-            r.get("sd3",""),
-            r.get("sd4","")
-        ])
-    file_stream = io.BytesIO()
-    wb.save(file_stream)
-    return file_stream
-
-@app.route('/webhook', methods=['POST'])
+@app.route("/webhook", methods=["POST"])
 def webhook():
-    logging.info("📥 Webhook ricevuto")
-    json_data = request.get_json()
-    if not json_data:
-        return jsonify({"error": "No JSON payload received"}), 400
-
-    data = json_data.get("data", [])
-    if not data:
-        return jsonify({"error": "No data found in payload"}), 400
-
-    filename = "/mtoXLSX/fileMTO.xlsx"  # nome fisso con autorename in upload
-
     try:
-        file_stream = genera_excel(data)
-        access_token = get_access_token(REFRESH_TOKEN, CLIENT_ID, CLIENT_SECRET)
-        if not access_token:
-            return jsonify({"error": "Failed to get access token"}), 500
+        data = request.get_json()
 
-        success, message = upload_to_dropbox(file_stream, filename, access_token)
-        if success:
-            return jsonify({"status": "success", "message": message})
-        else:
-            return jsonify({"status": "error", "message": message}), 500
+        file_name = f"{data['fileName']}_{datetime.now().strftime('%Y%m%d%H%M%S')}.xlsx"
+        file_path = os.path.join(SAVE_FOLDER, file_name)
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Data"
+
+        headers = ["bc", "qt", "in", "spec", "pp", "sp", "sd1", "sd2", "sd3", "sd4"]
+        ws.append(headers)
+
+        for item in data.get("data", []):
+            ws.append([item.get(k, "") for k in headers])
+
+        wb.save(file_path)
+
+        return jsonify({"status": "success", "saved_file": file_name})
 
     except Exception as e:
-        logging.error(f"❌ Eccezione durante elaborazione webhook: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"status": "error", "message": str(e)}), 500
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))  # compatibile con Render
+    app.run(host="0.0.0.0", port=port)
