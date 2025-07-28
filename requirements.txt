@@ -1,8 +1,6 @@
-Flask
+fastapi
+uvicorn
 pandas
 openpyxl
-requests
-gunicorn
-XlsxWriter
-fastapi
 python-dotenv
+requests
