@@ -1,48 +1,59 @@
 from flask import Flask, request, jsonify
+from werkzeug.utils import secure_filename
 from dropbox_uploader import upload_to_dropbox
-import pandas as pd
-from io import BytesIO
-from datetime import datetime
 import logging
+import io
+from openpyxl import Workbook
+import unicodedata
 
 app = Flask(__name__)
+logging.basicConfig(level=logging.INFO)
+
+def sanitize_filename(name):
+    """Rimuove caratteri non ASCII e rende il nome sicuro per i file"""
+    name = unicodedata.normalize('NFKD', name).encode('ascii', 'ignore').decode('ascii')
+    return secure_filename(name)
+
+@app.route('/')
+def index():
+    return '✅ Webhook XLSX Exporter is running!'
 
 @app.route('/webhook', methods=['POST'])
 def handle_webhook():
     try:
-        logging.info("✅ Webhook ricevuto")
-
         payload = request.get_json()
-        if not payload:
-            logging.warning("❌ JSON non ricevuto o vuoto")
-            return jsonify({"error": "Invalid or empty JSON"}), 400
+        logging.info("📥 Webhook ricevuto")
 
-        data = payload.get("data")
-        filename_base = payload.get("fileName")
+        filename = payload.get('fileName', 'report')
+        filename = sanitize_filename(filename)
+        logging.info(f"📁 Nome file: {filename}.xlsx")
 
-        if not data or not filename_base:
-            logging.warning("❌ Mancano 'data' o 'fileName'")
-            return jsonify({"error": "Missing 'data' or 'fileName'"}), 400
+        data = payload.get('data', [])
 
-        df = pd.DataFrame(data)
-        logging.info(f"📊 Dati ricevuti: {len(df)} righe, colonne: {list(df.columns)}")
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Export"
 
-        output = BytesIO()
-        df.to_excel(output, index=False, engine='openpyxl')
+        # Header
+        if data:
+            ws.append(list(data[0].keys()))
+
+        # Righe
+        for item in data:
+            ws.append(list(item.values()))
+
+        output = io.BytesIO()
+        wb.save(output)
         output.seek(0)
 
-        filename = f"/mtoXLSX/{filename_base}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-        logging.info(f"📁 Nome file Dropbox: {filename}")
-
-        success, message = upload_to_dropbox(output, filename)
-
+        success, message = upload_to_dropbox(output, f"/mtoXLSX/{filename}.xlsx")
         if success:
-            logging.info("✅ Upload su Dropbox riuscito")
-            return jsonify({"message": "File uploaded", "path": filename}), 200
+            logging.info("✅ File caricato su Dropbox con successo")
+            return jsonify({"status": "success", "message": message}), 200
         else:
-            logging.error(f"❌ Errore Dropbox: {message}")
-            return jsonify({"error": message}), 500
+            logging.error("❌ Errore nel caricamento su Dropbox")
+            return jsonify({"status": "error", "message": message}), 500
 
     except Exception as e:
         logging.exception("❌ Errore imprevisto")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"status": "error", "message": str(e)}), 500
