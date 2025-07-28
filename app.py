@@ -42,17 +42,19 @@ async def upload_json(payload: RequestModel):
 
         # 2.a Rimuovi simboli euro e virgole, converte numeri
 for col in df.columns:
-    if col == "BC":
-        continue  # non toccare la colonna BC, deve restare testo
+    if col in ["BC", "IN"]:
+        continue  # lascia BC e IN come testo
 
     if df[col].dtype == object:
+        df[col] = df[col].astype(str)
         df[col] = df[col].str.replace("€", "", regex=False)
         df[col] = df[col].str.replace(",", ".", regex=False)
         df[col] = df[col].str.strip()
-    try:
-        df[col] = pd.to_numeric(df[col])
-    except ValueError:
-        pass
+        try:
+            df[col] = pd.to_numeric(df[col])
+        except Exception:
+            pass
+
 
         logger.info(f"🧾 Colonne: {df.columns.tolist()}")
 
