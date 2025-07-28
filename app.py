@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify
 import io
 import logging
-from dropboxuploader import upload_to_dropbox, get_access_token, REFRESH_TOKEN, CLIENT_ID, CLIENT_SECRET
+from dropbox_uploader import upload_to_dropbox, get_access_token, REFRESH_TOKEN, CLIENT_ID, CLIENT_SECRET
 import openpyxl
 from openpyxl import Workbook
 
