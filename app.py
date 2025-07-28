@@ -6,7 +6,8 @@ import os
 import uuid
 import logging
 import re
-import openpyxl
+import xlsxwriter
+from io import BytesIO
 
 from dropbox_uploader import upload_to_dropbox
 
@@ -31,70 +32,57 @@ def short_uid(length=5) -> str:
 @app.post("/upload-json/")
 async def upload_json(payload: RequestModel):
     logger.info("📥 Ricevuta richiesta JSON per conversione in XLSX.")
-    filepath = None
+
+    safe_name = sanitize_filename(payload.fileName)
+    unique_id = short_uid()
+    final_filename = f"{safe_name}_{unique_id}.xlsx"
+    filepath = os.path.join("/tmp", final_filename)
 
     try:
-        # 1. Nome sicuro + ID corto
-        safe_name = sanitize_filename(payload.fileName)
-        unique_id = short_uid()
-        final_filename = f"{safe_name}_{unique_id}.xlsx"
-        filepath = os.path.join("/tmp", final_filename)
-        logger.info(f"📄 Nome file generato: {final_filename}")
-
-        # 2. Converti a DataFrame
         df = pd.DataFrame(payload.data)
 
-        # 3. Pulizia e conversione numerica, esclusi 'BC' e 'IN'
+        # Pulizia dati: rimuove euro, converte numeri, lascia BC e IN come testo
         for col in df.columns:
             if col in ["BC", "IN"]:
                 df[col] = df[col].astype(str).str.strip()
                 continue
 
             if df[col].dtype == object:
-                df[col] = df[col].astype(str)
-                df[col] = df[col].str.replace("€", "", regex=False)
-                df[col] = df[col].str.replace(",", ".", regex=False)
-                df[col] = df[col].str.strip()
-
+                df[col] = df[col].astype(str).str.replace("€", "", regex=False).str.replace(",", ".", regex=False).str.strip()
                 try:
                     df[col] = pd.to_numeric(df[col])
                 except Exception:
                     pass
 
-        logger.info(f"🧾 Colonne: {df.columns.tolist()}")
+        # Scrive file XLSX in memoria con formattazione
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+            df.to_excel(writer, index=False, sheet_name="Sheet1")
+            workbook = writer.book
+            worksheet = writer.sheets["Sheet1"]
 
-        # 4. Salvataggio Excel
-        df.to_excel(filepath, index=False)
+            # Formati
+            format_text = workbook.add_format({'num_format': '@'})
+            format_num = workbook.add_format({'num_format': '0.00'})
 
-        # 5. Formattazione Excel
-        wb = openpyxl.load_workbook(filepath)
-        ws = wb.active
+            # Applica formato alle intestazioni per compatibilità Excel
+            for col_idx, col_name in enumerate(df.columns):
+                worksheet.write(0, col_idx, col_name, format_text)
 
-        # Forza header come testo esplicito
-        for cell in ws[1]:
-            cell.number_format = '@'
-            cell.data_type = 's'
+            # Applica formattazione colonna per BC e IN come testo, altre come numero
+            for col_idx, col_name in enumerate(df.columns):
+                if col_name in ["BC", "IN"]:
+                    worksheet.set_column(col_idx, col_idx, 20, format_text)
+                else:
+                    worksheet.set_column(col_idx, col_idx, 20, format_num)
 
-        # Crea mappa intestazioni
-        headers = {cell.value: idx + 1 for idx, cell in enumerate(ws[1])}
+        # Salva su disco
+        with open(filepath, "wb") as f:
+            f.write(output.getvalue())
 
-        # Format numeri con 2 decimali e colonne BC/IN come testo
-        for row in ws.iter_rows(min_row=2):
-            for cell in row:
-                if isinstance(cell.value, (int, float)):
-                    cell.number_format = '0.00'
+        logger.info(f"📄 File XLSX generato in: {filepath}")
 
-        for col in ["BC", "IN"]:
-            if col in headers:
-                col_letter = openpyxl.utils.get_column_letter(headers[col])
-                for cell in ws[col_letter][1:]:  # skip header
-                    cell.number_format = '@'
-                    cell.data_type = 's'
-
-        wb.save(filepath)
-        logger.info(f"📄 File Excel salvato: {filepath}")
-
-        # 6. Upload su Dropbox in /mtoXLSX
+        # Upload su Dropbox in /mtoXLSX
         dropbox_path = f"/mtoXLSX/{final_filename}"
         response = upload_to_dropbox(filepath, dropbox_path)
         logger.info(f"✅ Caricato su Dropbox: {dropbox_path}")
@@ -110,6 +98,6 @@ async def upload_json(payload: RequestModel):
         return {"error": str(e)}
 
     finally:
-        if filepath and os.path.exists(filepath):
+        if os.path.exists(filepath):
             os.remove(filepath)
             logger.info(f"🧹 File temporaneo eliminato: {filepath}")
