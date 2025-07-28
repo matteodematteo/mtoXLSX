@@ -40,12 +40,8 @@ async def upload_json(payload: RequestModel):
         logger.info(f"📄 Clean filename: {final_filename}")
 
         # 2. Convert to DataFrame
-        # Converti colonne numeriche (esempio)
-for col in df.columns:
-    try:
-        df[col] = pd.to_numeric(df[col])
-    except ValueError:
-        pass  # se non si può convertire, lascia com'è
+         df = pd.DataFrame(payload.data)
+
 
         logger.info(f"🧾 Columns: {df.columns.tolist()}")
 
