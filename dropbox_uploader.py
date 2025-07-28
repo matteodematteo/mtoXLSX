@@ -2,44 +2,52 @@ import requests
 import json
 import logging
 
-DROPBOX_UPLOAD_URL = "https://content.dropboxapi.com/2/files/upload"
-DROPBOX_TOKEN_URL = "https://api.dropboxapi.com/oauth2/token"
+# Inserisci i tuoi dati qui
+REFRESH_TOKEN = "IL_TUO_REFRESH_TOKEN"
+CLIENT_ID = "IL_TUO_CLIENT_ID"
+CLIENT_SECRET = "IL_TUO_CLIENT_SECRET"
 
-def upload_to_dropbox(file_stream, dropbox_path, access_token):
+DROPBOX_UPLOAD_URL = "https://content.dropboxapi.com/2/files/upload"
+DROPBOX_TOKEN_URL = "https://api.dropbox.com/oauth2/token"
+
+def get_access_token(refresh_token, client_id, client_secret):
+    data = {
+        "refresh_token": refresh_token,
+        "grant_type": "refresh_token",
+        "client_id": client_id,
+        "client_secret": client_secret
+    }
     try:
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/octet-stream",
-            "Dropbox-API-Arg": json.dumps({
-                "path": dropbox_path,
-                "mode": "add",          # Non sovrascrivere, crea nuova versione con nome unico
-                "autorename": True,     # Abilita rename automatico
-                "mute": False
-            })
-        }
-        response = requests.post(DROPBOX_UPLOAD_URL, headers=headers, data=file_stream)
+        response = requests.post(DROPBOX_TOKEN_URL, data=data)
+        response.raise_for_status()
+        token = response.json().get("access_token")
+        logging.info("✅ Access token ottenuto correttamente.")
+        return token
+    except Exception as e:
+        logging.error(f"❌ Errore nel recupero access token: {e}")
+        return None
+
+def upload_to_dropbox(file_stream, filename, access_token):
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/octet-stream",
+        "Dropbox-API-Arg": json.dumps({
+            "path": filename,
+            "mode": "add",          # add per non sovrascrivere, autorename automatico
+            "autorename": True,
+            "mute": False,
+            "strict_conflict": False
+        })
+    }
+    try:
+        file_stream.seek(0)
+        response = requests.post(DROPBOX_UPLOAD_URL, headers=headers, data=file_stream.read())
         if response.status_code == 200:
-            logging.info(f"✅ Upload completato: {dropbox_path}")
+            logging.info(f"✅ File caricato correttamente: {filename}")
             return True, "Upload completato"
         else:
             logging.error(f"❌ Errore nell'upload su Dropbox: {response.status_code} - {response.text}")
-            return False, f"Errore upload: {response.status_code} - {response.text}"
+            return False, f"Errore {response.status_code}: {response.text}"
     except Exception as e:
-        logging.error(f"❌ Errore imprevisto: {e}")
+        logging.error(f"❌ Errore imprevisto durante upload: {e}")
         return False, str(e)
-
-def get_access_token(refresh_token, client_id, client_secret):
-    try:
-        data = {
-            "grant_type": "refresh_token",
-            "refresh_token": refresh_token,
-            "client_id": client_id,
-            "client_secret": client_secret
-        }
-        response = requests.post(DROPBOX_TOKEN_URL, data=data)
-        response.raise_for_status()
-        token_json = response.json()
-        return token_json.get("access_token")
-    except Exception as e:
-        logging.error(f"❌ Errore ottenimento access token: {e}")
-        return None
