@@ -1,53 +1,46 @@
+import dropbox
 import requests
-import json
-import logging
+import os
+import sys
 
-# Inserisci i tuoi dati qui
-REFRESH_TOKEN = "IL_TUO_REFRESH_TOKEN"
-CLIENT_ID = "IL_TUO_CLIENT_ID"
-CLIENT_SECRET = "IL_TUO_CLIENT_SECRET"
+# Legge le variabili d'ambiente definite su Render
+APP_KEY = os.getenv("DROPBOX_CLIENT_ID")
+APP_SECRET = os.getenv("DROPBOX_CLIENT_SECRET")
+REFRESH_TOKEN = os.getenv("DROPBOX_REFRESH_TOKEN")
+DROPBOX_FOLDER = "/mtoXLSX"
 
-DROPBOX_UPLOAD_URL = "https://content.dropboxapi.com/2/files/upload"
-DROPBOX_TOKEN_URL = "https://api.dropbox.com/oauth2/token"
-
-def get_access_token(refresh_token, client_id, client_secret):
+def get_access_token():
+    url = "https://api.dropbox.com/oauth2/token"
     data = {
-        "refresh_token": refresh_token,
         "grant_type": "refresh_token",
-        "client_id": client_id,
-        "client_secret": client_secret
+        "refresh_token": REFRESH_TOKEN,
+        "client_id": APP_KEY,
+        "client_secret": APP_SECRET,
     }
-    try:
-        response = requests.post(DROPBOX_TOKEN_URL, data=data)
-        response.raise_for_status()
-        token = response.json().get("access_token")
-        logging.info("✅ Access token ottenuto correttamente.")
-        return token
-    except Exception as e:
-        logging.error(f"❌ Errore nel recupero access token: {e}")
-        return None
+    response = requests.post(url, data=data)
+    response.raise_for_status()
+    return response.json()["access_token"]
 
-def upload_to_dropbox(file_stream, filename, access_token):
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/octet-stream",
-        "Dropbox-API-Arg": json.dumps({
-            "path": filename,
-            "mode": "add",          # add per non sovrascrivere, autorename automatico
-            "autorename": True,
-            "mute": False,
-            "strict_conflict": False
-        })
-    }
-    try:
-        file_stream.seek(0)
-        response = requests.post(DROPBOX_UPLOAD_URL, headers=headers, data=file_stream.read())
-        if response.status_code == 200:
-            logging.info(f"✅ File caricato correttamente: {filename}")
-            return True, "Upload completato"
-        else:
-            logging.error(f"❌ Errore nell'upload su Dropbox: {response.status_code} - {response.text}")
-            return False, f"Errore {response.status_code}: {response.text}"
-    except Exception as e:
-        logging.error(f"❌ Errore imprevisto durante upload: {e}")
-        return False, str(e)
+def upload_file(local_path):
+    file_name = os.path.basename(local_path)
+    dropbox_path = f"{DROPBOX_FOLDER}/{file_name}"
+
+    token = get_access_token()
+    dbx = dropbox.Dropbox(token)
+
+    with open(local_path, "rb") as f:
+        dbx.files_upload(f.read(), dropbox_path, mode=dropbox.files.WriteMode.overwrite)
+
+    print(f"✅ File caricato su Dropbox: {dropbox_path}")
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("❌ Specifica il file .xlsx da caricare.")
+        sys.exit(1)
+
+    local_file = sys.argv[1]
+    if not os.path.exists(local_file):
+        print(f"❌ File non trovato: {local_file}")
+        sys.exit(1)
+
+    upload_file(local_file)
