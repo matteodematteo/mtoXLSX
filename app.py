@@ -1,59 +1,70 @@
-from flask import Flask, request, jsonify
-from werkzeug.utils import secure_filename
-from dropbox_uploader import upload_to_dropbox
-import logging
 import io
-from openpyxl import Workbook
-import unicodedata
+import logging
+from flask import Flask, request, jsonify
+from xlsxwriter.workbook import Workbook
+from dropbox_uploader import upload_to_dropbox
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
-
-def sanitize_filename(name):
-    """Rimuove caratteri non ASCII e rende il nome sicuro per i file"""
-    name = unicodedata.normalize('NFKD', name).encode('ascii', 'ignore').decode('ascii')
-    return secure_filename(name)
+logger = logging.getLogger(__name__)
 
 @app.route('/')
 def index():
-    return '✅ Webhook XLSX Exporter is running!'
+    return '✅ Servizio attivo!'
 
 @app.route('/webhook', methods=['POST'])
 def handle_webhook():
     try:
+        logger.info("📥 Webhook ricevuto")
+
+        # Ricezione JSON
         payload = request.get_json()
-        logging.info("📥 Webhook ricevuto")
+        if not payload or "data" not in payload or "fileName" not in payload:
+            logger.error("❌ JSON mancante o incompleto")
+            return jsonify({"error": "Payload non valido"}), 400
 
-        filename = payload.get('fileName', 'report')
-        filename = sanitize_filename(filename)
-        logging.info(f"📁 Nome file: {filename}.xlsx")
+        filename = payload.get("fileName", "report")
+        if not filename.endswith(".xlsx"):
+            filename += ".xlsx"
+        logger.info(f"📁 Nome file: {filename}")
 
-        data = payload.get('data', [])
-
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Export"
-
-        # Header
-        if data:
-            ws.append(list(data[0].keys()))
-
-        # Righe
-        for item in data:
-            ws.append(list(item.values()))
-
+        # Generazione file Excel
         output = io.BytesIO()
-        wb.save(output)
+        workbook = Workbook(output, {'in_memory': True})
+        worksheet = workbook.add_worksheet("Dati")
+
+        headers = ["barcode", "comparison qty", "name", "prod.code", "cost", "price", "disc1%", "disc2%", "disc3%", "disc4%"]
+        worksheet.write_row(0, 0, headers)
+
+        for idx, row in enumerate(payload["data"], start=1):
+            worksheet.write_row(idx, 0, [
+                row.get("bc", ""),
+                row.get("qt", ""),
+                row.get("in", ""),
+                row.get("spec", ""),
+                row.get("pp", ""),
+                row.get("sp", ""),
+                row.get("sd1", ""),
+                row.get("sd2", ""),
+                row.get("sd3", ""),
+                row.get("sd4", "")
+            ])
+
+        workbook.close()
         output.seek(0)
 
-        success, message = upload_to_dropbox(output, f"/mtoXLSX/{filename}.xlsx")
+        # Upload su Dropbox
+        success, message = upload_to_dropbox(output, filename)
         if success:
-            logging.info("✅ File caricato su Dropbox con successo")
-            return jsonify({"status": "success", "message": message}), 200
+            logger.info("✅ Upload completato")
+            return jsonify({"message": "File caricato con successo", "path": message}), 200
         else:
-            logging.error("❌ Errore nel caricamento su Dropbox")
-            return jsonify({"status": "error", "message": message}), 500
+            logger.error("❌ Errore nel caricamento su Dropbox")
+            return jsonify({"error": message}), 500
 
     except Exception as e:
-        logging.exception("❌ Errore imprevisto")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        logger.exception("❌ Errore imprevisto")
+        return jsonify({"error": str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(debug=True)
