@@ -1,60 +1,69 @@
-import dropbox
-import requests
 import os
-import sys
+import requests
+import logging
+from dotenv import load_dotenv
 
-APP_KEY = os.getenv("DROPBOX_CLIENT_ID")
-APP_SECRET = os.getenv("DROPBOX_CLIENT_SECRET")
-REFRESH_TOKEN = os.getenv("DROPBOX_REFRESH_TOKEN")
-DROPBOX_FOLDER = "/mtoXLSX"
+# Configura logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Carica le variabili .env
+load_dotenv()
+
+DROPBOX_CLIENT_ID = os.getenv("DROPBOX_CLIENT_ID")
+DROPBOX_CLIENT_SECRET = os.getenv("DROPBOX_CLIENT_SECRET")
+DROPBOX_REFRESH_TOKEN = os.getenv("DROPBOX_REFRESH_TOKEN")
 
 def get_access_token():
-    url = "https://api.dropbox.com/oauth2/token"
+    logger.info("🔐 Richiesta access token da Dropbox...")
+
+    url = "https://api.dropboxapi.com/oauth2/token"
     data = {
         "grant_type": "refresh_token",
-        "refresh_token": REFRESH_TOKEN,
-        "client_id": APP_KEY,
-        "client_secret": APP_SECRET,
+        "refresh_token": DROPBOX_REFRESH_TOKEN,
     }
-    response = requests.post(url, data=data)
+
+    response = requests.post(
+        url,
+        data=data,
+        auth=(DROPBOX_CLIENT_ID, DROPBOX_CLIENT_SECRET)
+    )
+
+    if response.ok:
+        logger.info("✅ Access token ottenuto con successo.")
+    else:
+        logger.error(f"❌ Errore ottenendo access token: {response.text}")
+
     response.raise_for_status()
     return response.json()["access_token"]
 
-def check_dropbox_token():
-    print("🔍 Verifica validità token Dropbox...")
-    try:
-        token = get_access_token()
-        dbx = dropbox.Dropbox(token)
-        account = dbx.users_get_current_account()
-        print(f"✅ Token valido! Connesso come: {account.name.display_name}")
-        return True
-    except Exception as e:
-        print("❌ Token non valido o errore nella connessione a Dropbox.")
-        print(str(e))
-        return False
+def upload_to_dropbox(file_path, dropbox_path):
+    logger.info(f"⬆️ Inizio upload su Dropbox: {dropbox_path}")
 
-def upload_file(local_path):
-    file_name = os.path.basename(local_path)
-    dropbox_path = f"{DROPBOX_FOLDER}/{file_name}"
+    access_token = get_access_token()
 
-    token = get_access_token()
-    dbx = dropbox.Dropbox(token)
+    with open(file_path, "rb") as f:
+        data = f.read()
 
-    with open(local_path, "rb") as f:
-        dbx.files_upload(f.read(), dropbox_path, mode=dropbox.files.WriteMode.overwrite)
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Dropbox-API-Arg": str({
+            "path": dropbox_path,
+            "mode": "overwrite",
+            "autorename": True,
+            "mute": False,
+            "strict_conflict": False
+        }).replace("'", '"'),
+        "Content-Type": "application/octet-stream"
+    }
 
-    print(f"✅ File caricato su Dropbox: {dropbox_path}")
+    upload_url = "https://content.dropboxapi.com/2/files/upload"
+    res = requests.post(upload_url, headers=headers, data=data)
 
-if __name__ == "__main__":
-    if len(sys.argv) == 1:
-        # Nessun file specificato → solo controllo token
-        check_dropbox_token()
-        sys.exit(0)
+    if res.ok:
+        logger.info(f"✅ Upload completato: {dropbox_path}")
+    else:
+        logger.error(f"❌ Errore upload: {res.text}")
 
-    local_file = sys.argv[1]
-    if not os.path.exists(local_file):
-        print(f"❌ File non trovato: {local_file}")
-        sys.exit(1)
-
-    print(f"📤 Inizio upload del file: {local_file}")
-    upload_file(local_file)
+    res.raise_for_status()
+    return res.json()
