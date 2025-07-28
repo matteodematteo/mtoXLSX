@@ -1,3 +1,4 @@
+import json  # AGGIUNGI in cima al file
 import os
 import requests
 import logging
@@ -49,13 +50,14 @@ def upload_to_dropbox(file_path, dropbox_path):
 
     headers = {
         "Authorization": f"Bearer {access_token}",
-        "Dropbox-API-Arg": str({
-            "path": dropbox_path,
-            "mode": "overwrite",
-            "autorename": True,
-            "mute": False,
-            "strict_conflict": False
-        }).replace("'", '"'),
+"Dropbox-API-Arg": json.dumps({
+    "path": dropbox_path,
+    "mode": "overwrite",
+    "autorename": True,
+    "mute": False,
+    "strict_conflict": False
+}),
+
         "Content-Type": "application/octet-stream"
     }
 
