@@ -3,7 +3,6 @@ import requests
 import os
 import sys
 
-# Legge le variabili d'ambiente definite su Render
 APP_KEY = os.getenv("DROPBOX_CLIENT_ID")
 APP_SECRET = os.getenv("DROPBOX_CLIENT_SECRET")
 REFRESH_TOKEN = os.getenv("DROPBOX_REFRESH_TOKEN")
@@ -21,6 +20,19 @@ def get_access_token():
     response.raise_for_status()
     return response.json()["access_token"]
 
+def check_dropbox_token():
+    print("🔍 Verifica validità token Dropbox...")
+    try:
+        token = get_access_token()
+        dbx = dropbox.Dropbox(token)
+        account = dbx.users_get_current_account()
+        print(f"✅ Token valido! Connesso come: {account.name.display_name}")
+        return True
+    except Exception as e:
+        print("❌ Token non valido o errore nella connessione a Dropbox.")
+        print(str(e))
+        return False
+
 def upload_file(local_path):
     file_name = os.path.basename(local_path)
     dropbox_path = f"{DROPBOX_FOLDER}/{file_name}"
@@ -34,13 +46,15 @@ def upload_file(local_path):
     print(f"✅ File caricato su Dropbox: {dropbox_path}")
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("❌ Specifica il file .xlsx da caricare.")
-        sys.exit(1)
+    if len(sys.argv) == 1:
+        # Nessun file specificato → solo controllo token
+        check_dropbox_token()
+        sys.exit(0)
 
     local_file = sys.argv[1]
     if not os.path.exists(local_file):
         print(f"❌ File non trovato: {local_file}")
         sys.exit(1)
 
+    print(f"📤 Inizio upload del file: {local_file}")
     upload_file(local_file)
