@@ -3,19 +3,20 @@ import requests
 import logging
 from dotenv import load_dotenv
 
-# Configura logging
+# Load .env variables
+load_dotenv()
+
+# Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# Carica le variabili .env
-load_dotenv()
 
 DROPBOX_CLIENT_ID = os.getenv("DROPBOX_CLIENT_ID")
 DROPBOX_CLIENT_SECRET = os.getenv("DROPBOX_CLIENT_SECRET")
 DROPBOX_REFRESH_TOKEN = os.getenv("DROPBOX_REFRESH_TOKEN")
 
+
 def get_access_token():
-    logger.info("🔐 Richiesta access token da Dropbox...")
+    logger.info("🔐 Requesting Dropbox access token...")
 
     url = "https://api.dropboxapi.com/oauth2/token"
     data = {
@@ -30,15 +31,16 @@ def get_access_token():
     )
 
     if response.ok:
-        logger.info("✅ Access token ottenuto con successo.")
+        logger.info("✅ Access token obtained.")
     else:
-        logger.error(f"❌ Errore ottenendo access token: {response.text}")
+        logger.error(f"❌ Failed to get access token: {response.text}")
+        response.raise_for_status()
 
-    response.raise_for_status()
     return response.json()["access_token"]
 
+
 def upload_to_dropbox(file_path, dropbox_path):
-    logger.info(f"⬆️ Inizio upload su Dropbox: {dropbox_path}")
+    logger.info(f"⬆️ Uploading to Dropbox: {dropbox_path}")
 
     access_token = get_access_token()
 
@@ -61,9 +63,9 @@ def upload_to_dropbox(file_path, dropbox_path):
     res = requests.post(upload_url, headers=headers, data=data)
 
     if res.ok:
-        logger.info(f"✅ Upload completato: {dropbox_path}")
+        logger.info(f"✅ Upload successful: {dropbox_path}")
     else:
-        logger.error(f"❌ Errore upload: {res.text}")
+        logger.error(f"❌ Upload failed: {res.text}")
+        res.raise_for_status()
 
-    res.raise_for_status()
     return res.json()
