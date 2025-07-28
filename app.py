@@ -7,60 +7,63 @@ import uuid
 import logging
 import re
 
-from dropbox_uploader import upload_to_dropbox
+from dropbox_uploader import upload_to_dropbox  # Make sure this file exists separately
 
-# Configura logging
+# Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
+
 class RequestModel(BaseModel):
     fileName: str
     data: List[Dict[str, Any]]
 
+
 def sanitize_filename(filename: str) -> str:
-    """Sostituisce tutti i caratteri non alfanumerici con underscore"""
-    sanitized = re.sub(r"[^\w\-\.]", "_", filename)
-    return sanitized
+    """Replace all non-alphanumeric characters with underscores"""
+    return re.sub(r"[^\w\-\.]", "_", filename)
+
 
 @app.post("/upload-json/")
 async def upload_json(payload: RequestModel):
-    logger.info("📥 Ricevuta richiesta JSON per conversione in XLSX.")
+    logger.info("📥 JSON received for XLSX conversion.")
+
+    filepath = None  # Initialize to avoid reference before assignment
 
     try:
-        # 1. Sanitizza nome file
-        original_name = payload.fileName
-        safe_name = sanitize_filename(original_name)
+        # 1. Sanitize filename
+        safe_name = sanitize_filename(payload.fileName)
         final_filename = f"{safe_name}_{uuid.uuid4().hex}.xlsx"
         filepath = os.path.join("/tmp", final_filename)
-        logger.info(f"📄 Nome file pulito: {final_filename}")
+        logger.info(f"📄 Clean filename: {final_filename}")
 
-        # 2. Conversione a DataFrame
+        # 2. Convert to DataFrame
         df = pd.DataFrame(payload.data)
-        logger.info(f"🧾 Header colonne: {df.columns.tolist()}")
+        logger.info(f"🧾 Columns: {df.columns.tolist()}")
 
-        # 3. Salvataggio su disco
+        # 3. Save to disk
         df.to_excel(filepath, index=False)
-        logger.info(f"📄 File XLSX creato in: {filepath}")
+        logger.info(f"📄 XLSX file saved to: {filepath}")
 
-        # 4. Upload a Dropbox
+        # 4. Upload to Dropbox
         dropbox_path = f"/{final_filename}"
         response = upload_to_dropbox(filepath, dropbox_path)
 
-        logger.info(f"✅ File caricato su Dropbox: {dropbox_path}")
+        logger.info(f"✅ File uploaded to Dropbox: {dropbox_path}")
 
         return {
-            "message": "Upload completato",
+            "message": "Upload complete",
             "dropbox_path": dropbox_path,
             "dropbox_response": response
         }
 
     except Exception as e:
-        logger.error(f"❌ Errore: {str(e)}")
+        logger.error(f"❌ Error: {str(e)}")
         return {"error": str(e)}
 
     finally:
-        if os.path.exists(filepath):
+        if filepath and os.path.exists(filepath):
             os.remove(filepath)
-            logger.info(f"🧹 File temporaneo eliminato: {filepath}")
+            logger.info(f"🧹 Temp file deleted: {filepath}")
