@@ -1,54 +1,51 @@
-import os
 import requests
 import logging
+import os
+from io import BytesIO
 
 DROPBOX_CLIENT_ID = os.getenv("DROPBOX_CLIENT_ID")
 DROPBOX_CLIENT_SECRET = os.getenv("DROPBOX_CLIENT_SECRET")
 DROPBOX_REFRESH_TOKEN = os.getenv("DROPBOX_REFRESH_TOKEN")
 
+DROPBOX_TOKEN_URL = "https://api.dropbox.com/oauth2/token"
 DROPBOX_UPLOAD_URL = "https://content.dropboxapi.com/2/files/upload"
-DROPBOX_TOKEN_URL = "https://api.dropboxapi.com/oauth2/token"
 
 def get_access_token():
-    logging.info("🔄 Richiesta access token da Dropbox...")
-
-    response = requests.post(
-        DROPBOX_TOKEN_URL,
-        data={"grant_type": "refresh_token", "refresh_token": DROPBOX_REFRESH_TOKEN},
-        auth=(DROPBOX_CLIENT_ID, DROPBOX_CLIENT_SECRET)
-    )
-
-    if response.status_code == 200:
-        access_token = response.json()["access_token"]
-        logging.info("✅ Access token ottenuto correttamente.")
-        return access_token
-    else:
-        logging.error(f"❌ Errore nell'ottenimento dell'access token: {response.text}")
+    """Ottiene un access token usando il refresh token."""
+    data = {
+        "grant_type": "refresh_token",
+        "refresh_token": DROPBOX_REFRESH_TOKEN,
+        "client_id": DROPBOX_CLIENT_ID,
+        "client_secret": DROPBOX_CLIENT_SECRET
+    }
+    try:
+        response = requests.post(DROPBOX_TOKEN_URL, data=data)
+        response.raise_for_status()
+        token_json = response.json()
+        return token_json.get("access_token")
+    except Exception as e:
+        logging.error(f"Errore ottenimento access token: {str(e)}")
         return None
 
-def upload_to_dropbox(file_stream, dropbox_path):
+def upload_to_dropbox(file_stream, filename):
     access_token = get_access_token()
     if not access_token:
-        return False, "Access token non ottenuto"
+        return False, "Impossibile ottenere access token Dropbox"
 
+    dropbox_path = f"/mtoXLSX/{filename}"
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/octet-stream",
-        "Dropbox-API-Arg": str({
-            "path": dropbox_path,
-            "mode": "add",
-            "autorename": True,
-            "mute": False,
-            "strict_conflict": False
-        }).replace("'", '"')  # Dropbox richiede JSON con doppi apici
+        "Dropbox-API-Arg": f'{{"path": "{dropbox_path}", "mode": "overwrite", "autorename": false, "mute": false}}'
     }
 
-    logging.info(f"📁 Upload in corso su Dropbox: {dropbox_path}")
-
-    response = requests.post(DROPBOX_UPLOAD_URL, headers=headers, data=file_stream)
-
-    if response.status_code == 200:
-        return True, "Caricamento completato"
-    else:
-        logging.error(f"❌ Errore nell'upload su Dropbox: {response.status_code} - {response.text}")
-        return False, response.text
+    try:
+        response = requests.post(DROPBOX_UPLOAD_URL, headers=headers, data=file_stream)
+        if response.status_code == 200:
+            return True, "Upload completato"
+        else:
+            logging.error(f"Errore upload Dropbox: {response.status_code} - {response.text}")
+            return False, response.text
+    except Exception as e:
+        logging.error(f"Errore imprevisto: {str(e)}")
+        return False, str(e)
