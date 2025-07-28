@@ -21,63 +21,65 @@ class RequestModel(BaseModel):
     data: List[Dict[str, Any]]
 
 def sanitize_filename(filename: str) -> str:
-    """Sostituisce tutti i caratteri non alfanumerici con underscore"""
-    return re.sub(r"[^\w\-\.]", "_", filename)
+    """Rimuove i caratteri non alfanumerici, lasciando solo lettere, numeri, -, _, ."""
+    return re.sub(r"[^\w\-\.]", "", filename)
+
+def short_uid(length=5) -> str:
+    """Genera un ID univoco corto"""
+    return uuid.uuid4().hex[:length]
 
 @app.post("/upload-json/")
 async def upload_json(payload: RequestModel):
     logger.info("📥 Ricevuta richiesta JSON per conversione in XLSX.")
-
     filepath = None
 
     try:
-        # 1. Sanitizza nome file
+        # 1. Nome sicuro + ID corto
         safe_name = sanitize_filename(payload.fileName)
-        final_filename = f"{safe_name}_{uuid.uuid4().hex}.xlsx"
+        unique_id = short_uid()
+        final_filename = f"{safe_name}_{unique_id}.xlsx"
         filepath = os.path.join("/tmp", final_filename)
-        logger.info(f"📄 Nome file pulito: {final_filename}")
+        logger.info(f"📄 Nome file generato: {final_filename}")
 
-        # 2. Conversione a DataFrame
+        # 2. Converti a DataFrame
         df = pd.DataFrame(payload.data)
 
-        # 2.a Rimuovi simboli euro e virgole, converte numeri
-for col in df.columns:
-    if col in ["BC", "IN"]:
-        continue  # lascia BC e IN come testo
+        # 3. Pulizia e conversione numerica, esclusi 'BC' e 'IN'
+        for col in df.columns:
+            if col in ["BC", "IN"]:
+                continue
 
-    if df[col].dtype == object:
-        df[col] = df[col].astype(str)
-        df[col] = df[col].str.replace("€", "", regex=False)
-        df[col] = df[col].str.replace(",", ".", regex=False)
-        df[col] = df[col].str.strip()
-        try:
-            df[col] = pd.to_numeric(df[col])
-        except Exception:
-            pass
+            if df[col].dtype == object:
+                df[col] = df[col].astype(str)
+                df[col] = df[col].str.replace("€", "", regex=False)
+                df[col] = df[col].str.replace(",", ".", regex=False)
+                df[col] = df[col].str.strip()
 
+                try:
+                    df[col] = pd.to_numeric(df[col])
+                except Exception:
+                    pass
 
         logger.info(f"🧾 Colonne: {df.columns.tolist()}")
 
-        # 3. Salvataggio su disco
+        # 4. Salvataggio Excel
         df.to_excel(filepath, index=False)
 
-        # 3.a Formattazione numerica Excel (2 decimali)
+        # 5. Formattazione numerica Excel (2 decimali)
         wb = openpyxl.load_workbook(filepath)
         ws = wb.active
-
-        for row in ws.iter_rows(min_row=2):  # salta intestazione
+        for row in ws.iter_rows(min_row=2):
             for cell in row:
                 if isinstance(cell.value, (int, float)):
                     cell.number_format = '0.00'
         wb.save(filepath)
 
-        logger.info(f"📄 File XLSX creato in: {filepath}")
+        logger.info(f"📄 File Excel salvato: {filepath}")
 
-        # 4. Upload a Dropbox nella cartella /mtoXLSX
+        # 6. Upload su Dropbox in /mtoXLSX
         dropbox_path = f"/mtoXLSX/{final_filename}"
         response = upload_to_dropbox(filepath, dropbox_path)
-
-        logger.info(f"✅ File caricato su Dropbox: {dropbox_path}")
+        logger.info(f"✅ Caricato su Dropbox: {dropbox_path}")
 
         return {
             "message": "Upload completato",
