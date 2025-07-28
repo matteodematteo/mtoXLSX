@@ -1,39 +1,31 @@
 import io
 import logging
-from flask import Flask, request, jsonify
-from dropbox_uploader import upload_to_dropbox
-import pandas as pd
+from dropbox_uploader import upload_to_dropbox, get_access_token
 
-app = Flask(__name__)
-logging.basicConfig(level=logging.INFO)
+# Configurazione variabili (metti qui le tue credenziali)
+REFRESH_TOKEN = "il_tuo_refresh_token"
+CLIENT_ID = "il_tuo_client_id"
+CLIENT_SECRET = "il_tuo_client_secret"
 
-@app.route("/webhook", methods=["POST"])
-def handle_webhook():
-    logging.info("📥 Webhook ricevuto")
+def handle_webhook(data):
+    # Genera il file Excel in memoria (output)
+    output = genera_excel(data)
 
-    # Qui dovresti ricevere i dati JSON da AppSheet o simili
-    data = request.get_json()
-    # Esempio: estrai dati da "data" e crea un DataFrame pandas
-    # Qui va la tua logica di trasformazione dati
-    df = pd.DataFrame(data.get("data", []))
+    # Usa un nome fisso o con codice unico (qui esempio fisso)
+    filename = "/mtoXLSX/fileMTO.xlsx"
 
-    # Crea un file Excel in memoria
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        # Scrivi i dati nel foglio "Sheet1"
-        df.to_excel(writer, index=False, sheet_name="Sheet1")
-    output.seek(0)
+    # Ottieni access token valido
+    access_token = get_access_token(REFRESH_TOKEN, CLIENT_ID, CLIENT_SECRET)
+    if not access_token:
+        logging.error("Impossibile ottenere access token.")
+        return False, "Access token fallito"
 
-    filename = "fileMTO.xlsx"  # Nome fisso
+    # Upload su Dropbox
+    file_stream = io.BytesIO(output)  # output dev’essere bytes, non stringa
+    success, message = upload_to_dropbox(file_stream, filename, access_token)
+    return success, message
 
-    logging.info(f"📁 Nome file: {filename}")
-    success, message = upload_to_dropbox(output, filename)
-    if success:
-        logging.info("✅ File caricato con successo su Dropbox")
-        return jsonify({"status": "ok"})
-    else:
-        logging.error(f"❌ Errore nel caricamento su Dropbox: {message}")
-        return jsonify({"status": "error", "message": message}), 500
-
-if __name__ == "__main__":
-    app.run(debug=True)
+def genera_excel(data):
+    # Qui il tuo codice che crea il file XLSX in memoria e lo ritorna come bytes
+    # ...
+    pass
