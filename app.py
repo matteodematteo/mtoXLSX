@@ -1,61 +1,66 @@
-from flask import Flask, request, jsonify
-from openpyxl import Workbook
-from datetime import datetime
+from fastapi import FastAPI
+from pydantic import BaseModel
+from typing import List, Dict, Any
+import pandas as pd
 import os
+import uuid
+import logging
+import re
 
-app = Flask(__name__)
-SAVE_FOLDER = "./generated_xlsx"
-os.makedirs(SAVE_FOLDER, exist_ok=True)
+from dropbox_uploader import upload_to_dropbox
 
-@app.route("/health", methods=["GET"])
-def health_check():
-    return jsonify({
-        "status": "OK",
-        "message": "✅ Server attivo ed esistente!"
-    }), 200
+# Configura logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-@app.route("/info", methods=["GET"])
-def info():
-    return jsonify({
-        "app": "XLSX-Uploader",
-        "version": "1.0.0",
-        "description": "Servizio per ricevere dati JSON e salvare file Excel"
-    }), 200
+app = FastAPI()
 
-@app.route("/webhook", methods=["POST"])
-def webhook():
+class RequestModel(BaseModel):
+    fileName: str
+    data: List[Dict[str, Any]]
+
+def sanitize_filename(filename: str) -> str:
+    """Sostituisce tutti i caratteri non alfanumerici con underscore"""
+    sanitized = re.sub(r"[^\w\-\.]", "_", filename)
+    return sanitized
+
+@app.post("/upload-json/")
+async def upload_json(payload: RequestModel):
+    logger.info("📥 Ricevuta richiesta JSON per conversione in XLSX.")
+
     try:
-        data = request.get_json()
+        # 1. Sanitizza nome file
+        original_name = payload.fileName
+        safe_name = sanitize_filename(original_name)
+        final_filename = f"{safe_name}_{uuid.uuid4().hex}.xlsx"
+        filepath = os.path.join("/tmp", final_filename)
+        logger.info(f"📄 Nome file pulito: {final_filename}")
 
-        file_name = f"{data['fileName']}_{datetime.now().strftime('%Y%m%d%H%M%S')}.xlsx"
-        file_path = os.path.join(SAVE_FOLDER, file_name)
+        # 2. Conversione a DataFrame
+        df = pd.DataFrame(payload.data)
+        logger.info(f"🧾 Header colonne: {df.columns.tolist()}")
 
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Data"
+        # 3. Salvataggio su disco
+        df.to_excel(filepath, index=False)
+        logger.info(f"📄 File XLSX creato in: {filepath}")
 
-        headers = ["bc", "qt", "in", "spec", "pp", "sp", "sd1", "sd2", "sd3", "sd4"]
-        ws.append(headers)
+        # 4. Upload a Dropbox
+        dropbox_path = f"/{final_filename}"
+        response = upload_to_dropbox(filepath, dropbox_path)
 
-        for item in data.get("data", []):
-            row = [item.get(k, "") for k in headers]
-            ws.append(row)
+        logger.info(f"✅ File caricato su Dropbox: {dropbox_path}")
 
-        wb.save(file_path)
-
-        return jsonify({
-            "status": "success",
-            "message": f"✅ File salvato correttamente: {file_name}",
-            "file_path": file_path
-        }), 200
+        return {
+            "message": "Upload completato",
+            "dropbox_path": dropbox_path,
+            "dropbox_response": response
+        }
 
     except Exception as e:
-        return jsonify({
-            "status": "error",
-            "message": f"❌ Errore durante la generazione del file: {str(e)}"
-        }), 500
+        logger.error(f"❌ Errore: {str(e)}")
+        return {"error": str(e)}
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    print(f"🚀 Avvio su porta {port}...")
-    app.run(host="0.0.0.0", port=port)
+    finally:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+            logger.info(f"🧹 File temporaneo eliminato: {filepath}")
