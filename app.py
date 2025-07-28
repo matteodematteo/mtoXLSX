@@ -1,70 +1,57 @@
-import io
-import logging
-from flask import Flask, request, jsonify
-from xlsxwriter.workbook import Workbook
+from flask import Flask, request
+import pandas as pd
+from io import BytesIO
 from dropbox_uploader import upload_to_dropbox
+from datetime import datetime
+import logging
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
-@app.route('/')
+@app.route("/", methods=["GET"])
 def index():
-    return '✅ Servizio attivo!'
+    return "✅ Server attivo!"
 
-@app.route('/webhook', methods=['POST'])
+@app.route("/webhook", methods=["POST"])
 def handle_webhook():
+    logging.info("📥 Webhook ricevuto")
+
     try:
-        logger.info("📥 Webhook ricevuto")
+        json_data = request.get_json()
+        if not json_data:
+            logging.error("❌ Nessun JSON trovato nella richiesta")
+            return "Bad Request", 400
 
-        # Ricezione JSON
-        payload = request.get_json()
-        if not payload or "data" not in payload or "fileName" not in payload:
-            logger.error("❌ JSON mancante o incompleto")
-            return jsonify({"error": "Payload non valido"}), 400
+        file_name = json_data.get("fileName", "output")
+        data = json_data.get("data", [])
 
-        filename = payload.get("fileName", "report")
-        if not filename.endswith(".xlsx"):
-            filename += ".xlsx"
-        logger.info(f"📁 Nome file: {filename}")
+        if not data:
+            logging.error("❌ Nessun dato trovato nel JSON")
+            return "No data", 400
 
-        # Generazione file Excel
-        output = io.BytesIO()
-        workbook = Workbook(output, {'in_memory': True})
-        worksheet = workbook.add_worksheet("Dati")
+        logging.info(f"📁 Nome file: {file_name}")
 
-        headers = ["barcode", "comparison qty", "name", "prod.code", "cost", "price", "disc1%", "disc2%", "disc3%", "disc4%"]
-        worksheet.write_row(0, 0, headers)
+        # Usa le chiavi esattamente come sono per gli header
+        df = pd.DataFrame(data)
 
-        for idx, row in enumerate(payload["data"], start=1):
-            worksheet.write_row(idx, 0, [
-                row.get("bc", ""),
-                row.get("qt", ""),
-                row.get("in", ""),
-                row.get("spec", ""),
-                row.get("pp", ""),
-                row.get("sp", ""),
-                row.get("sd1", ""),
-                row.get("sd2", ""),
-                row.get("sd3", ""),
-                row.get("sd4", "")
-            ])
-
-        workbook.close()
+        # Scrive il file Excel in memoria
+        output = BytesIO()
+        df.to_excel(output, index=False, engine='openpyxl')
         output.seek(0)
 
-        # Upload su Dropbox
+        # Costruisci nome file .xlsx corretto (rimuove caratteri non validi da file_name)
+        safe_name = "".join(c for c in file_name if c not in r'\/:*?"<>|')
+        filename = f"/mtoXLSX/{safe_name}.xlsx"
+
+        # Carica su Dropbox
         success, message = upload_to_dropbox(output, filename)
         if success:
-            logger.info("✅ Upload completato")
-            return jsonify({"message": "File caricato con successo", "path": message}), 200
+            logging.info("✅ File caricato su Dropbox")
+            return "Success", 200
         else:
-            logger.error("❌ Errore nel caricamento su Dropbox")
-            return jsonify({"error": message}), 500
+            logging.error("❌ Errore nel caricamento su Dropbox")
+            return message, 500
 
     except Exception as e:
-        logger.exception("❌ Errore imprevisto")
-        return jsonify({"error": str(e)}), 500
-
-if __name__ == '__main__':
-    app.run(debug=True)
+        logging.error(f"❌ Errore imprevisto\n{e}", exc_info=True)
+        return "Internal Server Error", 500
