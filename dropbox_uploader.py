@@ -52,7 +52,7 @@ def upload_to_dropbox(file_path, dropbox_path):
         "Authorization": f"Bearer {access_token}",
 "Dropbox-API-Arg": json.dumps({
     "path": dropbox_path,
-    "mode": "overwrite",
+    "mode": "add",
     "autorename": True,
     "mute": False,
     "strict_conflict": False
