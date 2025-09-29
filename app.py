@@ -34,8 +34,7 @@ async def upload_json(payload: RequestModel):
     logger.info("📥 Ricevuta richiesta JSON per conversione in XLSX.")
 
     safe_name = sanitize_filename(payload.fileName)
-    unique_id = short_uid()
-    final_filename = f"{safe_name}_{unique_id}.xlsx"
+    final_filename = f"{safe_name}.xlsx"
     filepath = os.path.join("/tmp", final_filename)
 
     try:
